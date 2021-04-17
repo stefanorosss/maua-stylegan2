@@ -7,6 +7,8 @@ import torch as th
 from torch import nn
 from torch.nn import functional as F
 
+from utilgan import hw_scales, fix_size 
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
@@ -168,6 +170,8 @@ class ModulatedConv2d(nn.Module):
         out_channel,
         kernel_size,
         style_dim,
+        size = None,
+        scale_type = None, # scaling way: fit, centr, side, pad, padside
         demodulate=True,
         upsample=False,
         downsample=False,
@@ -181,7 +185,9 @@ class ModulatedConv2d(nn.Module):
         self.out_channel = out_channel
         self.upsample = upsample
         self.downsample = downsample
-
+        self.size = size
+        self.scale_type = scale_type
+        
         if upsample:
             factor = 2
             p = (len(blur_kernel) - factor) - (kernel_size - 1)
@@ -236,6 +242,7 @@ class ModulatedConv2d(nn.Module):
             _, _, height, width = out.shape
             out = out.view(batch, self.out_channel, height, width)
             out = self.blur(out)
+            out = fix_size(out, self.size, self.scale_type)
 
         elif self.downsample:
             inputs = self.blur(inputs)
@@ -314,6 +321,8 @@ class StyledConv(nn.Module):
         out_channel,
         kernel_size,
         style_dim,
+        size = None,
+        scale_type = None, # scaling way: fit, centr, side, pad, padside
         upsample=False,
         blur_kernel=[1, 3, 3, 1],
         demodulate=True,
@@ -326,6 +335,8 @@ class StyledConv(nn.Module):
             out_channel,
             kernel_size,
             style_dim,
+            size,
+            scale_type,
             upsample=upsample,
             blur_kernel=blur_kernel,
             demodulate=demodulate,
@@ -371,6 +382,7 @@ class Generator(nn.Module):
         size,
         style_dim,
         n_mlp,
+        scale_type = None,
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
         lr_mlp=0.01,
@@ -418,7 +430,7 @@ class Generator(nn.Module):
 
         layerID = 1
         self.conv1 = StyledConv(
-            self.channels[4], self.channels[4], 3, style_dim, blur_kernel=blur_kernel, layerID=layerID
+            self.channels[4], self.channels[4], 3, style_dim,  blur_kernel=blur_kernel, layerID=layerID
         )
         self.to_rgb1 = ToRGB(self.channels[4], style_dim, upsample=False)
 
@@ -440,7 +452,7 @@ class Generator(nn.Module):
             layerID += 1
             self.convs.append(
                 StyledConv(
-                    in_channel, out_channel, 3, style_dim, upsample=True, blur_kernel=blur_kernel, layerID=layerID
+                    in_channel, out_channel, 3, style_dim, size = output_size, scale_type=scale_type, upsample=True, blur_kernel=blur_kernel, layerID=layerID
                 )
             )
 
